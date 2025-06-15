@@ -98,12 +98,12 @@
 </head>
 <body class="flex flex-col items-center justify-center min-h-screen p-4">
     <div class="flex flex-col items-center justify-center bg-gray-800 rounded-2xl p-6 shadow-2xl relative">
-        <h1 class="text-3xl font-extrabold text-green-400 mb-4 tracking-wide">🍎 リンゴと爆弾ゲーム 💣</h1>
+        <h1 class="text-xl sm:text-2xl md:text-3xl font-extrabold text-green-400 mb-4 tracking-wide whitespace-nowrap">🍎 リンゴと爆弾ゲーム 💣</h1>
         <!-- スコア表示をgameUIの外に移動し、常に表示されるように変更 -->
-        <p id="scoreDisplay" class="text-4xl font-bold mb-4 text-white z-10">スコア: 0 / 次の目標: 5 / 1.0倍</p>
+        <p id="scoreDisplay" class="text-lg sm:text-xl md:text-2xl font-bold mb-4 text-white z-10 whitespace-nowrap">スコア: 0 / 次の目標: 5 / 1.0倍</p>
         <canvas id="gameCanvas" class="w-full max-w-lg aspect-square"></canvas>
         <div id="gameUI" class="absolute inset-0 flex flex-col items-center justify-center bg-gray-900 bg-opacity-90 rounded-2xl text-white text-center p-4" style="display: flex;">
-            <p id="messageDisplay" class="text-2xl mb-8">爆弾を避けながらリンゴを集めよう！</p>
+            <p id="messageDisplay" class="text-xl sm:text-2xl lg:text-2xl mb-8">爆弾を避けながらリンゴを集めよう！</p>
             <button id="startButton" class="game-button">ゲーム開始</button>
         </div>
     </div>
@@ -145,7 +145,7 @@
 
         // ゲームの設定
         const GAME_WIDTH = 400; // キャンバスの基準幅
-        const GAME_HEIGHT = 600; // キャンバスの基準高さ
+        const GAME_HEIGHT = 500; // キャンバスの基準高さ
 
         // プレイヤー設定
         const PLAYER_WIDTH = 50;
@@ -167,7 +167,7 @@
         const YELLOW_APPLE_VALUE_MULTIPLIER = 2; // ボーナスリンゴは通常の2倍得点
 
         let initialItemSpeed = 4; // 初期落下速度
-        const MAX_ITEM_SPEED = 20;     // 最大落下速度を調整
+        const MAX_ITEM_SPEED = 7;     // 最大落下速度を調整
 
         let items = []; // 画面上のアイテムを格納する配列
         let itemGenerationTimer = 0;
@@ -264,8 +264,7 @@
             bgmGainNode.connect(audioContext.destination);
 
             bgmOscillator.loop = true; // BGMをループ再生
-            // 修正箇所: oscillator.start(); を bgmOscillator.start(); に変更
-            bgmOscillator.start();
+            bgmOscillator.start(); // 修正済み
         }
 
         // BGM停止関数
@@ -477,7 +476,7 @@
                             currentMultiplier = parseFloat(currentMultiplier.toFixed(1)); // 小数点以下1桁に丸める
 
                             // 次のマイルストーンスコアを計算 (初期値5に20ずつ加算し、倍率をかけたもの)
-                            currentMilestoneBaseRawCount += 20; // 目標値の上昇量を増加
+                            currentMilestoneBaseRawCount += 20; 
                             nextMilestoneScoreTarget = Math.floor(currentMilestoneBaseRawCount * currentMultiplier); // それに倍率をかけてスコア目標にする
                         }
                         updateScoreDisplay(); // スコア表示を更新
