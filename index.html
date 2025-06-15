@@ -1,0 +1,657 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>リンゴと爆弾ゲーム</title>
+    <!-- Tailwind CSS CDNを読み込み -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* カスタムフォントと基本設定 */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #1a202c; /* ダークな背景 */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            overflow: hidden; /* スクロールバーを非表示に */
+        }
+        canvas {
+            background-color: #2d3748; /* ゲームエリアの背景色 */
+            display: block;
+            border-radius: 1rem; /* 角を丸くする */
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -2px rgba(0, 0, 0, 0.3); /* 影 */
+            touch-action: manipulation; /* タッチイベントの最適化 */
+        }
+        /* ボタンのスタイル */
+        .game-button {
+            padding: 0.75rem 1.5rem;
+            border-radius: 9999px; /* 完全な丸角 */
+            font-weight: bold;
+            color: white;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            background-image: linear-gradient(to right, #4CAF50, #8BC34A); /* グラデーション */
+            border: none;
+            outline: none;
+        }
+        .game-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            background-image: linear-gradient(to right, #8BC34A, #4CAF50);
+        }
+        .game-button:active {
+            transform: translateY(0);
+            box-shadow: none;
+        }
+
+        /* モバイル用コントロールボタン */
+        .mobile-controls {
+            display: flex;
+            justify-content: center;
+            gap: 1rem;
+            position: absolute;
+            bottom: 2rem;
+            width: 100%;
+        }
+        .mobile-controls button {
+            background-color: rgba(255, 255, 255, 0.2);
+            color: white;
+            font-size: 2rem;
+            width: 4rem;
+            height: 4rem;
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            border: none;
+            cursor: pointer;
+            opacity: 0.8;
+            transition: opacity 0.2s ease;
+        }
+        .mobile-controls button:hover {
+            opacity: 1;
+        }
+        @media (min-width: 768px) {
+            .mobile-controls {
+                display: none; /* デスクトップでは非表示 */
+            }
+        }
+
+        /* スコア強調表示用スタイル */
+        @keyframes pulse-highlight {
+            0% { transform: scale(1); opacity: 1; color: #fcd34d; }
+            50% { transform: scale(1.25); opacity: 0.9; color: #ffeb3b; } /* より大きく、明るい黄色に */
+            100% { transform: scale(1); opacity: 1; color: #fcd34d; }
+        }
+
+        .text-milestone-highlight {
+            font-size: 3.5rem; /* より大きく */
+            color: #fcd34d; /* 黄色に強調 */
+            animation: pulse-highlight 0.5s ease-out; /* アニメーション適用 */
+            text-shadow: 0 0 15px rgba(255, 235, 59, 0.9); /* 光るような影、より強調 */
+        }
+    </style>
+</head>
+<body class="flex flex-col items-center justify-center min-h-screen p-4">
+    <div class="flex flex-col items-center justify-center bg-gray-800 rounded-2xl p-6 shadow-2xl relative">
+        <h1 class="text-3xl font-extrabold text-green-400 mb-4 tracking-wide">🍎 リンゴと爆弾ゲーム 💣</h1>
+        <!-- スコア表示をgameUIの外に移動し、常に表示されるように変更 -->
+        <p id="scoreDisplay" class="text-4xl font-bold mb-4 text-white z-10">スコア: 0 / 次の目標: 5 / 1.0倍</p>
+        <canvas id="gameCanvas" class="w-full max-w-lg aspect-square"></canvas>
+        <div id="gameUI" class="absolute inset-0 flex flex-col items-center justify-center bg-gray-900 bg-opacity-90 rounded-2xl text-white text-center p-4" style="display: flex;">
+            <p id="messageDisplay" class="text-2xl mb-8">爆弾を避けながらリンゴを集めよう！</p>
+            <button id="startButton" class="game-button">ゲーム開始</button>
+        </div>
+    </div>
+
+    <!-- モバイル用コントロール -->
+    <div class="mobile-controls">
+        <button id="moveLeftBtn">←</button>
+        <button id="moveRightBtn">→</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const gameUI = document.getElementById('gameUI');
+        const startButton = document.getElementById('startButton');
+        const scoreDisplay = document.getElementById('scoreDisplay');
+        const messageDisplay = document.getElementById('messageDisplay');
+
+        const moveLeftBtn = document.getElementById('moveLeftBtn');
+        const moveRightBtn = document.getElementById('moveRightBtn');
+
+        let animationFrameId;
+        let gameRunning = false;
+        let score = 0; // 実際の得点（倍率適用済み）
+        let rawAppleCount = 0; // 取得したリンゴの生の数（ボーナスリンゴの得点計算用、および生成数用）
+        let currentMultiplier = 1.0; // 倍率
+
+        // Web Audio API のコンテキストを作成
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+        // BGM関連変数
+        let bgmOscillator = null;
+        let bgmGainNode = null;
+
+        // 効果音のクールダウン用変数
+        let lastCollectSoundTime = 0;
+        let lastAppleSpawnSoundTime = 0;
+        const SOUND_COOLDOWN = 50; // 50ミリ秒のクールダウン
+
+        // ゲームの設定
+        const GAME_WIDTH = 400; // キャンバスの基準幅
+        const GAME_HEIGHT = 600; // キャンバスの基準高さ
+
+        // プレイヤー設定
+        const PLAYER_WIDTH = 50;
+        const PLAYER_HEIGHT = 50;
+        const PLAYER_SPEED = 6; // プレイヤーの移動速度
+
+        let player = {
+            x: 0, // 初期化時に設定
+            y: 0, // 初期化時に設定
+            width: PLAYER_WIDTH,
+            height: PLAYER_HEIGHT,
+            dx: 0 // 移動方向 (-1: 左, 1: 右, 0: 停止)
+        };
+
+        // アイテム（リンゴと爆弾）の設定
+        const ITEM_WIDTH = 30;
+        const ITEM_HEIGHT = 30;
+        const REGULAR_APPLE_VALUE = 3; // 通常リンゴの基本得点
+        const YELLOW_APPLE_VALUE_MULTIPLIER = 2; // ボーナスリンゴは通常の2倍得点
+
+        let initialItemSpeed = 4; // 初期落下速度
+        const MAX_ITEM_SPEED = 20;     // 最大落下速度を調整
+
+        let items = []; // 画面上のアイテムを格納する配列
+        let itemGenerationTimer = 0;
+        const INITIAL_ITEM_GENERATION_INTERVAL = 60; // 初期アイテム生成の間隔（フレーム数）
+        let currentItemGenerationInterval = INITIAL_ITEM_GENERATION_INTERVAL;
+
+        // スコアによる難易度上昇の閾値 (スコアベース)
+        let currentMilestoneBaseRawCount = 5; // 初期リンゴ数ベースの目標
+        let nextMilestoneScoreTarget = 0; // 現在のスコア換算マイルストーン目標 (初期化時に計算)
+
+        // 倍率の上昇量設定
+        const BASE_MULTIPLIER_INCREASE = 0.2; // 基本の倍率増加量
+        let milestoneCount = 0; // マイルストーン達成回数（倍率計算用）
+
+        // ボーナスリンゴ生成用変数
+        let bonusApplesToGenerate = 0;
+        const BONUS_APPLE_GENERATION_RATE = 1; // 1フレームごとに1つ生成 (大幅に短縮)
+
+        // サウンド再生関数
+        function playSound(frequency, duration, type = 'sine', volume = 0.5, delay = 0) {
+            if (!audioContext) return;
+
+            setTimeout(() => {
+                const oscillator = audioContext.createOscillator();
+                const gainNode = audioContext.createGain();
+
+                oscillator.type = type;
+                oscillator.frequency.setValueAtTime(frequency, audioContext.currentTime);
+
+                gainNode.gain.setValueAtTime(volume, audioContext.currentTime);
+                // 音が急に止まらないようにフェードアウト
+                gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + duration);
+
+                oscillator.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+
+                oscillator.start(audioContext.currentTime);
+                oscillator.stop(audioContext.currentTime + duration);
+            }, delay);
+        }
+
+        // リンゴ取得時の効果音
+        function playCollectSound() {
+            const now = audioContext.currentTime * 1000; // 現在時刻をミリ秒に変換
+            if (now - lastCollectSoundTime < SOUND_COOLDOWN) {
+                return; // クールダウン中の場合は再生しない
+            }
+            lastCollectSoundTime = now; // 最終再生時刻を更新
+            playSound(600, 0.08, 'sine', 0.4);
+        }
+
+        // リンゴ生成時の効果音
+        function playAppleSpawnSound() {
+            const now = audioContext.currentTime * 1000; // 現在時刻をミリ秒に変換
+            if (now - lastAppleSpawnSoundTime < SOUND_COOLDOWN) {
+                return; // クールダウン中の場合は再生しない
+            }
+            lastAppleSpawnSoundTime = now; // 最終再生時刻を更新
+            playSound(200, 0.05, 'triangle', 0.2);
+        }
+
+        // マイルストーン達成時の効果音（射幸心を煽る感じ）
+        function playMilestoneSound() {
+            // 上昇するアルペジオと少し複雑な音
+            const baseFreq = 440;
+            const duration = 0.08;
+            const volume = 0.6;
+            const delay = 50; // ms
+
+            playSound(baseFreq, duration, 'square', volume, 0); // A4
+            playSound(baseFreq * 1.189, duration, 'square', volume, delay); // C#5 (約+3半音)
+            playSound(baseFreq * 1.498, duration, 'square', volume, delay * 2); // E5 (約+7半音)
+            playSound(baseFreq * 2, duration, 'square', volume * 1.2, delay * 3); // A5 (オクターブ上、少し強調)
+        }
+
+        // ゲームオーバー時の効果音
+        function playGameOverSound() {
+            playSound(150, 0.3, 'sawtooth', 0.7); // 低めの不協和音
+            setTimeout(() => playSound(100, 0.4, 'sawtooth', 0.7), 150);
+        }
+
+        // BGM開始関数
+        function startBGM() {
+            if (bgmOscillator) return; // 既にBGMが再生中の場合は何もしない
+
+            bgmOscillator = audioContext.createOscillator();
+            bgmGainNode = audioContext.createGain();
+
+            bgmOscillator.type = 'sine'; // 正弦波で滑らかに
+            bgmOscillator.frequency.setValueAtTime(100, audioContext.currentTime); // 低めの周波数
+            bgmGainNode.gain.setValueAtTime(0.03, audioContext.currentTime); // 非常に小さな音量
+
+            bgmOscillator.connect(bgmGainNode);
+            bgmGainNode.connect(audioContext.destination);
+
+            bgmOscillator.loop = true; // BGMをループ再生
+            // 修正箇所: oscillator.start(); を bgmOscillator.start(); に変更
+            bgmOscillator.start();
+        }
+
+        // BGM停止関数
+        function stopBGM() {
+            if (bgmOscillator) {
+                bgmOscillator.stop();
+                bgmOscillator.disconnect();
+                bgmOscillator = null;
+                bgmGainNode = null;
+            }
+        }
+
+
+        // 初期化処理
+        function initializeGame() {
+            // キャンバスサイズをレスポンシブに設定
+            resizeCanvas();
+            window.addEventListener('resize', resizeCanvas);
+
+            score = 0;
+            rawAppleCount = 0; // リセット
+            currentMultiplier = 1.0; // 倍率をリセット
+            items = [];
+            initialItemSpeed = 4; // 速度をリセット
+            currentItemGenerationInterval = INITIAL_ITEM_GENERATION_INTERVAL; // 生成間隔をリセット
+            currentMilestoneBaseRawCount = 5; // 初期リンゴ数ベースの目標をリセット
+            milestoneCount = 0; // マイルストーン達成回数をリセット
+            bonusApplesToGenerate = 0; // ボーナスリンゴカウンターをリセット
+            
+            // プレイヤーの初期位置を実際のキャンバスサイズに合わせて設定
+            player.x = (canvas.width / (window.devicePixelRatio || 1)) / 2 - PLAYER_WIDTH / 2;
+            player.y = (canvas.height / (window.devicePixelRatio || 1)) - PLAYER_HEIGHT - 20; // 画面下部から少し上
+            player.dx = 0;
+            
+            // 初回の nextMilestoneScoreTarget を計算
+            nextMilestoneScoreTarget = Math.floor(currentMilestoneBaseRawCount * currentMultiplier);
+
+            updateScoreDisplay(); // スコア表示を更新
+            // 強調クラスを確実に削除
+            scoreDisplay.classList.remove('text-milestone-highlight');
+            messageDisplay.textContent = `爆弾を避けながらリンゴを集めよう！`;
+            gameUI.style.display = 'flex'; // UIを表示
+            startButton.textContent = 'ゲーム開始';
+            gameRunning = false; // ゲーム停止状態
+
+            // UI表示中でもプレイヤーが見えるように初回描画
+            draw();
+        }
+
+        // キャンバスのリサイズ処理
+        function resizeCanvas() {
+            const container = canvas.parentElement;
+            const containerWidth = container.offsetWidth;
+            const containerHeight = container.offsetHeight;
+
+            // 幅を基準に高さを設定 (アスペクト比を維持)
+            canvas.width = Math.min(GAME_WIDTH, containerWidth);
+            canvas.height = Math.min(GAME_HEIGHT, containerWidth * (GAME_HEIGHT / GAME_WIDTH));
+
+            // DPIに対応するために解像度を調整 (これはレンダリング解像度であり、表示サイズではない)
+            const dpr = window.devicePixelRatio || 1;
+            canvas.style.width = `${canvas.width}px`;
+            canvas.style.height = `${canvas.height}px`;
+            canvas.width = canvas.width * dpr;
+            canvas.height = canvas.height * dpr;
+            ctx.scale(dpr, dpr);
+
+            // キャンバスサイズ変更時にプレイヤーの位置を再調整
+            player.x = (canvas.width / (window.devicePixelRatio || 1)) / 2 - PLAYER_WIDTH / 2;
+            player.y = (canvas.height / (window.devicePixelRatio || 1)) - PLAYER_HEIGHT - 20;
+        }
+
+        // ゲーム開始
+        startButton.addEventListener('click', startGame);
+
+        function startGame() {
+            if (gameRunning) return; // 既にゲーム中の場合は何もしない
+
+            gameRunning = true;
+            score = 0;
+            rawAppleCount = 0; // リセット
+            currentMultiplier = 1.0; // 倍率をリセット
+            items = [];
+            initialItemSpeed = 4; // 速度をリセット
+            currentItemGenerationInterval = INITIAL_ITEM_GENERATION_INTERVAL; // 生成間隔をリセット
+            currentMilestoneBaseRawCount = 5; // 初期リンゴ数ベースの目標をリセット
+            milestoneCount = 0; // マイルストーン達成回数をリセット
+            bonusApplesToGenerate = 0; // ボーナスリンゴカウンターをリセット
+
+            player.x = canvas.width / (window.devicePixelRatio || 1) / 2 - PLAYER_WIDTH / 2;
+            player.dx = 0;
+            
+            // 初回の nextMilestoneScoreTarget を計算
+            nextMilestoneScoreTarget = Math.floor(currentMilestoneBaseRawCount * currentMultiplier);
+
+            updateScoreDisplay(); // スコア表示を更新
+            // 強調クラスを確実に削除
+            scoreDisplay.classList.remove('text-milestone-highlight');
+            messageDisplay.textContent = ''; // メッセージをクリア
+            gameUI.style.display = 'none'; // UIを非表示
+
+            startBGM(); // ゲーム開始時にBGMを再生
+
+            if (animationFrameId) {
+                cancelAnimationFrame(animationFrameId); // 前のアニメーションがあればキャンセル
+            }
+            gameLoop(); // ゲームループを開始
+        }
+
+        // スコア表示を更新する関数
+        function updateScoreDisplay() {
+            const displayedScore = Math.floor(score); // 倍率適用済みなのでそのまま表示
+            const displayedNextTarget = Math.floor(nextMilestoneScoreTarget); // スコアベースなのでそのまま表示
+            
+            scoreDisplay.textContent = `スコア: ${displayedScore} / 次の目標: ${displayedNextTarget} / ${currentMultiplier.toFixed(1)}倍`;
+        }
+
+        // ゲームオーバー
+        function gameOver() {
+            gameRunning = false;
+            cancelAnimationFrame(animationFrameId); // アニメーションを停止
+            playGameOverSound(); // ゲームオーバー音を再生
+            stopBGM(); // ゲームオーバー時にBGMを停止
+
+            messageDisplay.textContent = `ゲームオーバー！スコア: ${Math.floor(score)}`; // 最終スコア
+            scoreDisplay.textContent = `スコア: ${Math.floor(score)}`; // ゲームオーバー時は目標と倍率表示をなくす
+            gameUI.style.display = 'flex'; // UIを表示
+        }
+
+        // ゲームループ
+        function gameLoop() {
+            update();
+            draw();
+            if (gameRunning) {
+                animationFrameId = requestAnimationFrame(gameLoop);
+            }
+        }
+
+        // 更新処理
+        function update() {
+            if (!gameRunning) return;
+
+            // プレイヤーの移動
+            player.x += player.dx * PLAYER_SPEED;
+            // プレイヤーが画面外に出ないように制限
+            player.x = Math.max(0, Math.min(player.x, canvas.width / (window.devicePixelRatio || 1) - player.width));
+
+            // アイテムの生成 (通常生成とボーナス生成)
+            itemGenerationTimer++;
+            // 通常のアイテム生成
+            if (itemGenerationTimer >= currentItemGenerationInterval) {
+                createItem();
+                itemGenerationTimer = 0;
+            }
+
+            // ボーナスリンゴの段階的生成
+            if (bonusApplesToGenerate > 0) {
+                // 1フレームあたり2個生成 (以前の「半分の期間」を維持)
+                const applesToGenerateThisFrame = Math.min(bonusApplesToGenerate, 2);
+                for (let j = 0; j < applesToGenerateThisFrame; j++) {
+                    createItem('apple', true); // ボーナスリンゴを生成
+                }
+                bonusApplesToGenerate -= applesToGenerateThisFrame;
+            }
+
+
+            // アイテムの更新と衝突判定
+            for (let i = items.length - 1; i >= 0; i--) {
+                const item = items[i];
+                item.y += item.speed; // 落下
+
+                // 衝突判定 (プレイヤーとアイテム)
+                if (
+                    player.x < item.x + item.width &&
+                    player.x + player.width > item.x &&
+                    player.y < item.y + item.height &&
+                    player.y + player.height > item.y
+                ) {
+                    if (item.type === 'apple') {
+                        if (item.isBonus) {
+                            score += YELLOW_APPLE_VALUE_MULTIPLIER * REGULAR_APPLE_VALUE * currentMultiplier; // ボーナスリンゴは高得点 (倍率適用)
+                        } else {
+                            score += REGULAR_APPLE_VALUE * currentMultiplier; // 通常リンゴ (倍率適用)
+                        }
+                        rawAppleCount++; // 生リンゴ数を増加（ボーナスリンゴ生成数用）
+                        playCollectSound(); // リンゴ取得時の効果音
+
+                        // スコアがマイルストーンに達したかチェック (スコアで判定)
+                        while (score >= nextMilestoneScoreTarget) { // 複数マイルストーンをまたぐ可能性があるのでwhile
+                            playMilestoneSound(); // マイルストーン達成時の効果音
+                            // スコア表示を強調
+                            scoreDisplay.classList.add('text-milestone-highlight');
+                            // 0.5秒後に強調表示を解除 (アニメーション時間に合わせて調整)
+                            setTimeout(() => {
+                                scoreDisplay.classList.remove('text-milestone-highlight');
+                            }, 500);
+
+                            // ボーナスリンゴの生成数を設定 (これまで取得したリンゴ数)
+                            bonusApplesToGenerate += (rawAppleCount / 2); // ボーナスリンゴの生成数を半減
+
+                            // アイテムの生成間隔を短縮（生成数を増加）
+                            currentItemGenerationInterval = Math.max(10, currentItemGenerationInterval * 0.5); 
+                            // アイテムの落下速度を上昇 (線形増加)
+                            initialItemSpeed = Math.min(MAX_ITEM_SPEED, initialItemSpeed + 0.3); 
+
+                            // 倍率を増加 (奥に行くほど増加量を大きくする)
+                            milestoneCount++; // マイルストーン達成回数を増加
+                            currentMultiplier += BASE_MULTIPLIER_INCREASE;
+                            currentMultiplier = parseFloat(currentMultiplier.toFixed(1)); // 小数点以下1桁に丸める
+
+                            // 次のマイルストーンスコアを計算 (初期値5に20ずつ加算し、倍率をかけたもの)
+                            currentMilestoneBaseRawCount += 20; // 目標値の上昇量を増加
+                            nextMilestoneScoreTarget = Math.floor(currentMilestoneBaseRawCount * currentMultiplier); // それに倍率をかけてスコア目標にする
+                        }
+                        updateScoreDisplay(); // スコア表示を更新
+
+                    } else if (item.type === 'bomb') {
+                        gameOver();
+                        return; // ゲームオーバーになったら以降の処理は不要
+                    }
+                    items.splice(i, 1); // 衝突したアイテムを削除
+                }
+
+                // アイテムが画面下部を通過した場合
+                if (item.y > canvas.height / (window.devicePixelRatio || 1)) {
+                    items.splice(i, 1); // 画面外に出たアイテムを削除
+                }
+            }
+        }
+
+        // 描画処理
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width / (window.devicePixelRatio || 1), canvas.height / (window.devicePixelRatio || 1)); // キャンバスをクリア
+
+            // プレイヤーを描画
+            ctx.fillStyle = '#4299e1'; // 青色
+            ctx.fillRect(player.x, player.y, player.width, player.height);
+            ctx.strokeStyle = '#2b6cb0'; // 濃い青
+            ctx.lineWidth = 2;
+            ctx.strokeRect(player.x, player.y, player.width, player.height);
+            ctx.fillStyle = 'white';
+            ctx.font = '16px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText('君', player.x + player.width / 2, player.y + player.height / 2 + 5);
+
+            // まずリンゴをすべて描画
+            items.forEach(item => {
+                const itemDrawWidth = ITEM_WIDTH;
+                const itemDrawHeight = ITEM_HEIGHT;
+                if (item.type === 'apple') {
+                    if (item.isBonus) {
+                        // ボーナスリンゴは鮮やかな赤
+                        ctx.fillStyle = '#FF0000'; // 鮮やかな赤
+                        ctx.strokeStyle = '#CC0000'; // 濃い赤
+                    } else {
+                        // 通常リンゴは暗い赤
+                        ctx.fillStyle = '#8B0000'; // 暗い赤
+                        ctx.strokeStyle = '#660000'; // さらに暗い赤
+                    }
+                    ctx.beginPath();
+                    ctx.arc(item.x + itemDrawWidth / 2, item.y + itemDrawHeight / 2, itemDrawWidth / 2, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+
+                    // ヘタの描画
+                    ctx.beginPath();
+                    ctx.moveTo(item.x + itemDrawWidth / 2, item.y + itemDrawHeight / 2 - itemDrawWidth / 2);
+                    ctx.lineTo(item.x + itemDrawWidth / 2 + 5, item.y + itemDrawHeight / 2 - itemDrawWidth / 2 - 10);
+                    ctx.strokeStyle = '#10b981'; // 緑色
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                }
+            });
+
+            // 次に爆弾をすべて描画（リンゴより上に描画される）
+            items.forEach(item => {
+                const itemDrawWidth = ITEM_WIDTH;
+                const itemDrawHeight = ITEM_HEIGHT;
+                if (item.type === 'bomb') {
+                    // 爆弾の描画 (背景より白に近い色に調整)
+                    ctx.fillStyle = '#cbd5e0'; // ライトグレー (背景の#2d3748よりかなり明るい)
+                    ctx.beginPath();
+                    ctx.arc(item.x + itemDrawWidth / 2, item.y + itemDrawHeight / 2, itemDrawWidth / 2, 0, Math.PI * 2);
+                    ctx.fill();
+                    // 枠線は削除
+                    // ctx.strokeStyle = '#dc2626';
+                    // ctx.lineWidth = 4;
+                    // ctx.stroke();
+
+                    // 火花の導火線
+                    ctx.beginPath();
+                    ctx.moveTo(item.x + itemDrawWidth / 2, item.y + itemDrawHeight / 2 - itemDrawWidth / 2);
+                    ctx.lineTo(item.x + itemDrawWidth / 2 + 5, item.y + itemDrawHeight / 2 - itemDrawWidth / 2 - 10);
+                    ctx.strokeStyle = '#f59e0b'; // オレンジ色
+                    ctx.lineWidth = 3;
+                    ctx.stroke();
+                }
+            });
+        }
+
+        // アイテム生成関数
+        function createItem(type = null, isBonus = false) { // オプションでアイテムの種類を指定できるように変更
+            type = type || (Math.random() < (14/17) ? 'apple' : 'bomb'); // 通常リンゴの生成確率を維持
+            const x = Math.random() * (canvas.width / (window.devicePixelRatio || 1) - ITEM_WIDTH);
+            items.push({
+                x: x,
+                y: -ITEM_HEIGHT, // 画面上部から少し上
+                width: ITEM_WIDTH,
+                height: ITEM_HEIGHT,
+                type: type,
+                speed: initialItemSpeed, // 現在の落下速度を使用
+                isBonus: isBonus // ボーナスリンゴかどうか
+            });
+            if (type === 'apple') {
+                playAppleSpawnSound(); // リンゴ生成時に効果音
+            }
+        }
+
+        // キーボードイベントリスナー
+        document.addEventListener('keydown', (e) => {
+            if (!gameRunning) return;
+            if (e.key === 'ArrowLeft' || e.key === 'a') {
+                player.dx = -1;
+            } else if (e.key === 'ArrowRight' || e.key === 'd') {
+                player.dx = 1;
+            }
+        });
+
+        document.addEventListener('keyup', (e) => {
+            if (!gameRunning) return;
+            if ((e.key === 'ArrowLeft' || e.key === 'a') && player.dx === -1) {
+                player.dx = 0;
+            } else if ((e.key === 'ArrowRight' || e.key === 'd') && player.dx === 1) {
+                player.dx = 0;
+            }
+        });
+
+        // モバイルコントロールイベントリスナー (タッチ開始で移動、タッチ終了で停止)
+        moveLeftBtn.addEventListener('touchstart', (e) => {
+            e.preventDefault(); // デフォルトのスクロール動作などを防止
+            if (gameRunning) player.dx = -1;
+        });
+        moveLeftBtn.addEventListener('touchend', () => {
+            if (player.dx === -1) player.dx = 0;
+        });
+        moveLeftBtn.addEventListener('touchcancel', () => {
+            if (player.dx === -1) player.dx = 0;
+        });
+
+        moveRightBtn.addEventListener('touchstart', (e) => {
+            e.preventDefault(); // デフォルトのスクロール動作などを防止
+            if (gameRunning) player.dx = 1;
+        });
+        moveRightBtn.addEventListener('touchend', () => {
+            if (player.dx === 1) player.dx = 0;
+        });
+        moveRightBtn.addEventListener('touchcancel', () => {
+            if (player.dx === 1) player.dx = 0;
+        });
+
+        // マウスイベント（PC向けにボタンをテストする場合）
+        moveLeftBtn.addEventListener('mousedown', () => {
+            if (gameRunning) player.dx = -1;
+        });
+        moveLeftBtn.addEventListener('mouseup', () => {
+            if (player.dx === -1) player.dx = 0;
+        });
+        moveLeftBtn.addEventListener('mouseleave', () => {
+            if (player.dx === -1) player.dx = 0;
+        });
+
+        moveRightBtn.addEventListener('mousedown', () => {
+            if (gameRunning) player.dx = 1;
+        });
+        moveRightBtn.addEventListener('mouseup', () => {
+            if (player.dx === 1) player.dx = 0;
+        });
+        moveRightBtn.addEventListener('mouseleave', () => {
+            if (player.dx === 1) player.dx = 0;
+        });
+
+
+        // 初期化をページ読み込み時に実行
+        window.onload = initializeGame;
+
+    </script>
+</body>
+</html>
